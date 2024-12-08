@@ -22,8 +22,13 @@ g++ compiler.cpp -o compiler.exe
 ### 2. Run the Compiler  
 Once compiled, you can use the compiler with the following command:  
 ```bash  
-./compiler.exe code.txt output.asm  or compiler.exe code.txt output.asm
+./compiler.exe code.txt output.asm
 ```  
+Incase the above command is not working, run this: 
+```bash  
+compiler.exe code.txt output.asm
+```  
+
 Here:  
 - `code.txt` is the input file containing the source code to be compiled.  
 - `output.asm` is the generated Intel x86 assembly file.  
