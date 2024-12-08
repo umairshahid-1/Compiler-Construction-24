@@ -8,6 +8,7 @@
 #include <sstream>       // For stringstream, used in reading files and error handling
 #include <iomanip>       // For table formatting with setw
 #include <stdexcept>     // For runtime_error
+#include <algorithm>
 
 using namespace std;
 
@@ -137,6 +138,18 @@ public:
             return "UNKNOWN";
         }
     }
+
+    // Method to retrieve all symbols
+    vector<SymbolEntry> getAllSymbols() const
+    {
+        vector<SymbolEntry> allSymbols;
+        for (const auto &entry : symbols)
+        {
+            allSymbols.push_back(entry.second);
+        }
+        return allSymbols;
+    }
+
     void printEntries()
     {
         cout << left << setw(15) << "Name" << setw(10) << "Type" << setw(10) << "Value" << setw(10) << "Line" << setw(15) << "Initialized" << endl;
@@ -158,19 +171,21 @@ class TACInstruction
 public:
     enum OpType
     {
-        ASSIGN,      // x = y
-        ADD,         // x = y + z
-        SUB,         // x = y - z
-        MUL,         // x = y * z
-        DIV,         // x = y / z
-        LABEL,       // Label for jumps
-        JUMP,        // Unconditional jump
-        JUMPIFTRUE,  // Conditional jump
-        JUMPIFFALSE, // Conditional jump
-        LESSTHAN,    // x = y < z
-        GREATERTHAN, // x = y > z
-        EQUALS,      // x = y == z
-        RETURN       // return x
+        ASSIGN,           // x = y
+        ADD,              // x = y + z
+        SUB,              // x = y - z
+        MUL,              // x = y * z
+        DIV,              // x = y / z
+        LABEL,            // Label for jumps
+        JUMP,             // Unconditional jump
+        JUMPIFTRUE,       // Conditional jump
+        JUMPIFFALSE,      // Conditional jump
+        LESSTHAN,         // x = y < z
+        GREATERTHAN,      // x = y > z
+        LESSTHANEQUAL,    // x = y <= z
+        GREATERTHANEQUAL, // x = y >= z
+        EQUALS,           // x = y == z
+        RETURN            // return x
     };
 
     OpType op;
@@ -217,6 +232,10 @@ public:
             return result + " = " + arg1 + " < " + arg2;
         case GREATERTHAN:
             return result + " = " + arg1 + " > " + arg2;
+        case LESSTHANEQUAL:
+            return result + " = " + arg1 + " <= " + arg2;
+        case GREATERTHANEQUAL:
+            return result + " = " + arg1 + " >= " + arg2;
         case EQUALS:
             return result + " = " + arg1 + " == " + arg2;
         case RETURN:
@@ -224,6 +243,109 @@ public:
         default:
             return "unknown instruction";
         }
+    }
+};
+
+class X86AssemblyGenerator
+{
+private:
+    vector<TACInstruction> &tacInstructions;
+    vector<string> assemblyCode;
+    unordered_map<string, string> variableToMemory;
+    unordered_map<string, bool> initializedVariables; // Tracks initialization state
+    int stackSize = 0;
+
+    void allocateStackSpace(const string &var, bool initialized)
+    {
+        stackSize += 4; // 4 bytes for each variable
+        variableToMemory[var] = "[ebp-" + to_string(stackSize) + "]";
+        initializedVariables[var] = initialized; // Track initialization status
+    }
+
+    void allocateUninitializedVariables()
+    {
+        for (const auto &entry : initializedVariables)
+        {
+            if (!entry.second)
+            {
+                assemblyCode.push_back("; Warning: Variable " + entry.first + " is uninitialized.");
+                assemblyCode.push_back("    mov dword " + variableToMemory[entry.first] + ", 0");
+            }
+        }
+    }
+
+public:
+    X86AssemblyGenerator(vector<TACInstruction> &tac) : tacInstructions(tac) {}
+
+    vector<string> generateAssembly(const SymbolTable &symbolTable)
+    {
+        // Data section
+        assemblyCode.push_back("section .data");
+        assemblyCode.push_back("; Data declarations go here (if any)");
+
+        // BSS section for uninitialized global variables
+        assemblyCode.push_back("section .bss");
+
+        // Text section
+        assemblyCode.push_back("section .text");
+        assemblyCode.push_back("global _start");
+        assemblyCode.push_back("_start:");
+
+        // Function prologue
+        assemblyCode.push_back("    push ebp");
+        assemblyCode.push_back("    mov ebp, esp");
+
+        // Allocate space for local variables
+        auto symbols = symbolTable.getAllSymbols();
+        for (const auto &entry : symbols)
+        {
+            allocateStackSpace(entry.name, entry.initialized);
+        }
+        assemblyCode.push_back("    sub esp, " + to_string(stackSize));
+
+        // Zero out uninitialized variables
+        allocateUninitializedVariables();
+
+        // Generate assembly for each TAC instruction
+        for (const auto &tac : tacInstructions)
+        {
+            generateInstructionAssembly(tac);
+        }
+
+        // Function epilogue
+        assemblyCode.push_back("    mov esp, ebp");
+        assemblyCode.push_back("    pop ebp");
+        assemblyCode.push_back("    mov eax, 1");   // syscall: exit
+        assemblyCode.push_back("    xor ebx, ebx"); // exit code 0
+        assemblyCode.push_back("    int 0x80");
+
+        return assemblyCode;
+    }
+
+    void generateInstructionAssembly(const TACInstruction &tac)
+    {
+        assemblyCode.push_back("; " + tac.toString()); // Comment with TAC instruction
+
+        switch (tac.op)
+        {
+        case TACInstruction::ASSIGN:
+            // Handle assignment instructions
+            assemblyCode.push_back("    mov eax, " + getOperandLocation(tac.arg1));
+            assemblyCode.push_back("    mov " + getOperandLocation(tac.result) + ", eax");
+            initializedVariables[tac.result] = true; // Mark as initialized
+            break;
+
+            // Handle arithmetic, jumps, comparisons...
+        }
+    }
+
+    string getOperandLocation(const string &operand)
+    {
+        if (variableToMemory.find(operand) != variableToMemory.end())
+        {
+            return variableToMemory[operand];
+        }
+        return operand; // Immediate values or labels
     }
 };
 
@@ -622,6 +744,9 @@ private:
     int tempVarCounter = 0;
     int labelCounter = 0;
 
+    // Add assembly generator
+    X86AssemblyGenerator *asmGenerator;
+
     // Generate new temporary variable
     string newTemp()
     {
@@ -727,7 +852,10 @@ private:
         {
             pos++; // Move past =
             symbolTable.updateValue(varName, tokens[pos].value);
-            parseExpression();
+
+            // Generate TAC for initialization
+            ExprResult expr = parseExpression();
+            tacInstructions.push_back(TACInstruction(TACInstruction::ASSIGN, varName, expr.place));
         }
 
         expect(T_SEMICOLON);
@@ -746,8 +874,11 @@ private:
 
         expect(T_ASSIGN);
         ExprResult expr = parseExpression();
+
+        // Generate TAC for assignment
         tacInstructions.push_back(TACInstruction(
             TACInstruction::ASSIGN, varName, expr.place));
+
         expect(T_SEMICOLON);
     }
 
@@ -772,48 +903,72 @@ private:
     {
         pos++; // Move past 'while'
         expect(T_LPAREN);
-        parseExpression(); // Parse condition
+        string startLabel = newLabel();
+        string endLabel = newLabel();
+
+        // Add start label before condition evaluation
+        tacInstructions.push_back(TACInstruction(TACInstruction::LABEL, startLabel));
+
+        // Parse and generate condition TAC
+        ExprResult condition = parseExpression();
         expect(T_RPAREN);
-        parseStatement(); // Parse loop body
+
+        // Generate jump based on condition
+        tacInstructions.push_back(TACInstruction(TACInstruction::JUMPIFFALSE, condition.place, endLabel));
+
+        // Parse and generate loop body TAC
+        parseStatement();
+
+        // Jump back to start of loop
+        tacInstructions.push_back(TACInstruction(TACInstruction::JUMP, startLabel));
+
+        // Add end label
+        tacInstructions.push_back(TACInstruction(TACInstruction::LABEL, endLabel));
     }
 
     void parseForStatement()
     {
-        pos++; // Move past 'for'
-        expect(T_LPAREN);
+        pos++;            // Move past 'for'
+        expect(T_LPAREN); // Ensure '(' is present
 
-        // Initialization part
-        parseStatement();
+        parseDeclaration(); // Handle declarations (e.g., `int i = 7;`)
 
-        // Condition part
-        parseExpression();
-        expect(T_SEMICOLON);
+        // Generate start and end labels
+        string startLabel = newLabel();
+        string endLabel = newLabel();
 
-        // Increment/Decrement part - handle as an assignment
-        if (tokens[pos].type == T_ID)
+        // Add start label for the loop
+        tacInstructions.push_back(TACInstruction(TACInstruction::LABEL, startLabel));
+
+        // Parse Condition
+        ExprResult condition;
+        if (tokens[pos].type != T_SEMICOLON) // Check if a condition exists
         {
-            string varName = tokens[pos].value;
-            pos++; // Move past identifier
-
-            if (tokens[pos].type == T_ASSIGN)
-            {
-                pos++; // Move past =
-                parseExpression();
-            }
-            else
-            {
-                error("Expected assignment operator in for loop increment");
-            }
+            condition = parseExpression(); // Parse the condition (e.g., `i > 5`)
         }
-        else
+        expect(T_SEMICOLON); // Ensure the semicolon after the condition
+
+        // Generate TAC for jumping if condition is false
+        if (!condition.place.empty())
         {
-            parseExpression(); // Handle other types of expressions
+            tacInstructions.push_back(TACInstruction(TACInstruction::JUMPIFFALSE, condition.place, endLabel));
         }
 
-        expect(T_RPAREN);
+        // Parse Increment
+        if (tokens[pos].type != T_RPAREN) // Check if an increment exists
+        {
+            parseExpression(); // Parse the increment (e.g., `i = i + 1`)
+        }
+        expect(T_RPAREN); // Ensure the closing ')' is present
 
-        // Body
-        parseStatement();
+        // Parse the loop body
+        parseBlock();
+
+        // Add a jump back to the start label
+        tacInstructions.push_back(TACInstruction(TACInstruction::JUMP, startLabel));
+
+        // Add end label to mark the end of the loop
+        tacInstructions.push_back(TACInstruction(TACInstruction::LABEL, endLabel));
     }
 
     void parseReturnStatement()
@@ -836,7 +991,6 @@ private:
         expect(T_RBRACE); // Ensures each `{` has a matching `}`
     }
 
-    // Modified parseExpression to generate TAC
     ExprResult parseExpression()
     {
         ExprResult result = parseTerm();
@@ -848,7 +1002,7 @@ private:
                 type != T_GT && type != T_LT &&
                 type != T_GE && type != T_LE &&
                 type != T_EQ && type != T_NEQ &&
-                type != T_AND && type != T_OR)
+                type != T_ASSIGN)
             {
                 break;
             }
@@ -878,7 +1032,18 @@ private:
                 tacInstructions.push_back(TACInstruction(
                     TACInstruction::LESSTHAN, temp, result.place, right.place));
                 break;
-                // Add other cases for remaining operators
+            case T_GE:
+                tacInstructions.push_back(TACInstruction(
+                    TACInstruction::GREATERTHANEQUAL, temp, result.place, right.place));
+                break;
+            case T_LE:
+                tacInstructions.push_back(TACInstruction(
+                    TACInstruction::LESSTHANEQUAL, temp, result.place, right.place));
+                break;
+            case T_EQ:
+                tacInstructions.push_back(TACInstruction(
+                    TACInstruction::EQUALS, temp, result.place, right.place));
+                break;
             }
 
             result.place = temp;
@@ -931,9 +1096,6 @@ private:
             pos++; // Move past operator
             ExprResult operand = parseFactor();
             string temp = newTemp();
-            // Generate appropriate TAC instruction for unary operator
-            // For NOT:
-            // tacInstructions.push_back(TACInstruction(TACInstruction::NOT, temp, operand.place));
             result.place = temp;
         }
         else
@@ -976,7 +1138,7 @@ private:
     }
 
 public:
-    Parser(const vector<Token> &tokens) : tokens(tokens), pos(0) {}
+    Parser(const vector<Token> &tokens) : tokens(tokens), pos(0) { asmGenerator = nullptr; }
 
     void parse()
     {
@@ -1006,6 +1168,36 @@ public:
         // Add more suggestions for other common errors
     }
 
+    // In Parser class
+    void generateAssembly(const string &outputFile)
+    {
+        X86AssemblyGenerator generator(tacInstructions);
+        vector<string> assembly = generator.generateAssembly(symbolTable);
+
+        ofstream outFile(outputFile);
+        if (outFile.is_open())
+        {
+            for (const auto &line : assembly)
+            {
+                outFile << line << endl;
+            }
+            outFile.close();
+            cout << "x86 assembly code generated successfully in " << outputFile << endl;
+        }
+        else
+        {
+            cerr << "Error: Unable to open output file for assembly code" << endl;
+        }
+    }
+    // Clean up in destructor
+    ~Parser()
+    {
+        if (asmGenerator)
+        {
+            delete asmGenerator;
+        }
+    }
+
     // Method to print generated TAC
     void printTAC()
     {
@@ -1027,10 +1219,10 @@ int main(int argc, char *argv[])
     try
     {
         // Check command line arguments
-        if (argc != 2)
+        if (argc != 3)
         {
-            cerr << "Usage: " << argv[0] << " <filename>" << endl;
-            cerr << "Example: " << argv[0] << " myprogram.txt" << endl;
+            cerr << "Usage: " << argv[0] << " <input_file> <output_file>" << endl;
+            cerr << "Example: " << argv[0] << " myprogram.txt output.asm" << endl;
             return 1;
         }
 
@@ -1098,6 +1290,9 @@ int main(int argc, char *argv[])
 
             // Print the Three Address Code after symbol table
             parser.printTAC();
+
+            // Generate assembly code
+            parser.generateAssembly(argv[2]);
         }
         catch (const runtime_error &e)
         {
