@@ -24,7 +24,7 @@ Once compiled, you can use the compiler with the following command:
 ```bash  
 ./compiler.exe code.txt output.asm
 ```  
-Incase the above command is not working, run this: 
+In case the above command does not work, run this: 
 ```bash  
 compiler.exe code.txt output.asm
 ```  
