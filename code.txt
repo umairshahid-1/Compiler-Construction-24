@@ -1,18 +1,56 @@
-// Testing single-line comments
-/* Testing
-   multi-line
-   comments */
+// Single line comment: Test various features
 
-// Testing while loop (using 'while')
-int counter = 11;
-while (counter <= 50)
-{
-  counter = 100;
+// Define a function that returns an integer
+int add(int a, int b) {
+    int sum = a + b;
+    waps sum; // return sum
 }
 
-// Testing for loop (using 'for')
-bool result = false;
-for (int i = 7; i > 5; i = i + 1)
-{
-  result = true;
+// Define a void function that just assigns a value and returns nothing
+void greet() {
+    string greetMsg = "Function!";
+    // just return without value since it's void
+    waps;
 }
+
+// Another function: multiply two floats
+float multiply(float m, float n) {
+    float result = m * n;
+    waps result;
+}
+
+// Let's declare some variables
+int x = 10;
+float y = 3.14;
+bool bc = false;
+char c = 'Z';
+string msg = "Hello!";
+
+// If-else statement
+agr (x > 5) {
+    x = x - 5;
+} wrna {
+    x = x + 5;
+}
+
+// While loop (jabtak = while)
+jidotak (x < 20) {
+    x = 30; 
+}
+
+// For loop (chlo = for)
+chliyaG (int i = 0; i < 3; i = i + 1) {
+    y = 7.5;
+}
+
+// Call the add function
+x = add(x, 10);
+
+// Use the multiply function
+y = multiply(y, 2.0);
+
+// Change boolean value
+bc = true;
+
+// Return statement
+waps 0;
